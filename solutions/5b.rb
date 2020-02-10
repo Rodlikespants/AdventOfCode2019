@@ -86,13 +86,14 @@ class JumpIfTrue < Operation
 
 	def process(inputs, pos)
 		param1_index = get_index(inputs, @mode1, pos, 1)
-		# param2_index = get_index(inputs, @mode2, pos, 2)
+		param2_index = get_index(inputs, @mode2, pos, 2)
 
 		# move the instruction pointer and track the offset
 		if (inputs[param1_index] != 0)
-			@instruction_offset = inputs[pos+2] - pos
+			@instruction_offset = inputs[param2_index] - pos
 		end
 
+		p inputs
 		return inputs
 	end
 end
@@ -108,7 +109,7 @@ class JumpIfFalse < Operation
 
 		# move the instruction pointer and track the offset
 		if (inputs[param1_index] == 0)
-			@instruction_offset = inputs[pos+2] - pos
+			@instruction_offset = inputs[param2_index] - pos
 		end
 
 		return inputs
