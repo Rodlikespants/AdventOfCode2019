@@ -1,3 +1,11 @@
+class OperationResult
+	attr_reader :intcode, :output
+	def initialize(intcode, output=nil)
+		@intcode = intcode
+		@output = output
+	end
+end
+
 class Operation
 	attr_reader :opcode, :mode1, :mode2, :mode3, :instruction_offset
 	# attr_writer :instruction_offset
@@ -32,7 +40,7 @@ class Addition < Operation
 		dest_index   = get_index(inputs, @mode3, pos, 3)
 		# puts "#{param1_index} #{param2_index} #{dest_index}"
 		inputs[dest_index] = inputs[param1_index] + inputs[param2_index]
-		return inputs
+		return OperationResult.new(inputs)
 	end
 end
 
@@ -46,23 +54,29 @@ class Multiplication < Operation
 		param2_index = get_index(inputs, @mode2, pos, 2)
 		dest_index   = get_index(inputs, @mode3, pos, 3)
 		inputs[dest_index] = inputs[param1_index] * inputs[param2_index]
-		return inputs
+		return OperationResult.new(inputs)
 	end
 end
 
 class Input < Operation
-	def initialize(mode1, mode2, mode3)
+	def initialize(mode1, mode2, mode3, input_prompt)
 		super(3, mode1, mode2, mode3, 2)
+		@input_prompt = input_prompt
 	end
 
 
 	def process(inputs, pos)
 		# input_value = "5".chomp.to_i
-		input_value = $stdin.gets.chomp.to_i
+		if (@input_prompt.nil?)
+			input_value = $stdin.gets.chomp.to_i
+		else
+			puts "Using input prompt " + @input_prompt.to_s
+			input_value = @input_prompt
+		end
 		
 		dest_index  = get_index(inputs, @mode1, pos, 1)
 		inputs[dest_index] = input_value
-		return inputs
+		return OperationResult.new(inputs)
 	end
 end
 
@@ -73,8 +87,9 @@ class Output < Operation
 
 	def process(inputs, pos)
 		param1_index = get_index(inputs, @mode1, pos, 1)
-		puts "Diagnostic Result: " + inputs[param1_index].to_s
-		return inputs
+		output = inputs[param1_index].to_s
+		puts "Diagnostic Result: " + output
+		return OperationResult.new(inputs, output)
 	end
 end
 
@@ -93,8 +108,8 @@ class JumpIfTrue < Operation
 			@instruction_offset = inputs[param2_index] - pos
 		end
 
-		p inputs
-		return inputs
+		# p inputs
+		return OperationResult.new(inputs)
 	end
 end
 
@@ -112,7 +127,7 @@ class JumpIfFalse < Operation
 			@instruction_offset = inputs[param2_index] - pos
 		end
 
-		return inputs
+		return OperationResult.new(inputs)
 	end
 end
 
@@ -128,7 +143,7 @@ class LessThan < Operation
 
 		inputs[param3_index] = inputs[param1_index] < inputs[param2_index] ? 1 : 0
 
-		return inputs
+		return OperationResult.new(inputs)
 	end
 end
 
@@ -144,7 +159,7 @@ class Equals < Operation
 
 		inputs[param3_index] = inputs[param1_index] == inputs[param2_index] ? 1 : 0
 		
-		return inputs
+		return OperationResult.new(inputs)
 	end
 end
 
@@ -160,7 +175,7 @@ class Exit < Operation
 	end
 end
 
-def process_operation(full_code)
+def process_operation(full_code, input_prompt=nil)
 	opcode = full_code%100
 	mode1 = (full_code/100)%10
 	mode2 = (full_code/1000)%10
@@ -173,7 +188,7 @@ def process_operation(full_code)
 	elsif (opcode == 2)
 		return Multiplication.new(mode1, mode2, mode3)
 	elsif (opcode == 3)
-		return Input.new(mode1, mode2, mode3)
+		return Input.new(mode1, mode2, mode3, input_prompt)
 	elsif (opcode == 4)
 		return Output.new(mode1, mode2, mode3)
 	elsif (opcode == 5)
@@ -202,7 +217,7 @@ def compute_all(og_inputs, result)
 	end
 end
 
-def compute(og_inputs, noun=nil, verb=nil)
+def compute(og_inputs, noun=nil, verb=nil, phase=nil, thruster_input=nil)
 	inputs = og_inputs.clone
 	# p inputs
 	if (!noun.nil?)
@@ -214,26 +229,65 @@ def compute(og_inputs, noun=nil, verb=nil)
 	end
 
 	pos = 0
-	op = process_operation(inputs[pos])
+
+	input_prompt = phase
+	op = process_operation(inputs[pos], input_prompt)
+	num_input_prompts = 0
+	output = nil
+
+	if (op.opcode == 3)
+		num_input_prompts += 1
+	end
 
 	while (op.opcode != 99 && pos < inputs.size)
 		p inputs[pos..(pos+op.instruction_offset-1)]
 
-		# TODO inputs = op.process(inputs, pos) ?
-		op.process(inputs, pos)
+		# ugly hardcoded logic here
+		if (op.opcode == 3)
+			if (num_input_prompts > 0)
+				input_prompt = thruster_input
+			end
+			num_input_prompts += 1
+		end
+
+		result = op.process(inputs, pos)
+		inputs = result.intcode
+
+		# hardcoded for this level?
+		if (!result.output.nil?)
+			output = result.output
+		end
+
 		pos += op.instruction_offset
-		# puts "offset="+op.instruction_offset.to_s
-		# puts "pos=#{pos}"
-		# puts inputs[pos]
-		op = process_operation(inputs[pos])
-		# p inputs
+		op = process_operation(inputs[pos], input_prompt)
 	end
 
-	return inputs[0]
+	puts output
+	return inputs[0], output.to_i
+end
+
+def simulate_thrusters(intcode)
+	max_output = 0
+	max_perm = nil
+	phase_perms = [0,1,2,3,4].permutation.to_a
+	phase_perms.each do | phases |
+		thruster_code = 0
+		puts "phase_perm: #{phases}"
+		phases.each do | phase |
+			thruster_inputs = intcode.clone
+			last_result, thruster_code = compute(thruster_inputs, nil, nil, phase, thruster_code)
+			puts "new thruster code=#{thruster_code}"
+			if (thruster_code > max_output)
+				max_output = thruster_code
+				max_perm = phases
+			end
+		end
+		puts "Max output: #{max_output}"
+	end
+	return max_output, max_perm
 end
 
 filename = ARGV[0] || raise("missing filename")
-# result = ARGV[1] || raise('missing result')
 
 
 file = File.open(filename, "r")
@@ -246,11 +300,7 @@ file.each_line do |line|
 	intputs = og_inputs.map(&:to_i)
 end
 
-# noun,verb = compute_all(intputs, result.to_i)
-# puts "noun=#{noun}, verb=#{verb}"
-# puts compute(intputs, 12, 2)
-puts compute(intputs)
+output, phase = simulate_thrusters(intputs)
 
-
-
-# puts inputs.size
+puts "Max output: #{output}"
+puts "Phase setting: #{phase}"
